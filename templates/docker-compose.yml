@@ -1,0 +1,139 @@
+# Local development stack for {{PROJECT_NAME}}.
+# Production images are built by the same Dockerfiles; this file only adds the
+# local services (database, cache) and wires the sides together.
+name: {{PROJECT_NAME}}
+
+services:
+# {{IF FRONTEND}}
+  frontend:
+    build:
+# {{IF FE_ROOT_CONTEXT}}
+      context: .
+      dockerfile: ./{{FE_DIR}}/Dockerfile
+# {{ENDIF}}
+# {{IF FE_DIR_CONTEXT}}
+      context: ./{{FE_DIR}}
+      dockerfile: Dockerfile
+# {{ENDIF}}
+# {{IF BACKEND}}
+      args:
+        # Build-time public variables (NEXT_PUBLIC_*): add each one here AND as ARG/ENV in the Dockerfile.
+        NEXT_PUBLIC_API_URL: http://127.0.0.1:{{BE_PORT}}
+# {{ENDIF}}
+    ports:
+      - "{{FE_PORT}}:{{FE_PORT}}"
+    env_file:
+      - path: ./{{FE_DIR}}/.env
+        required: false
+    environment:
+      - PORT={{FE_PORT}}
+# {{IF BACKEND}}
+    depends_on:
+      - backend
+# {{ENDIF}}
+# {{ENDIF}}
+
+# {{IF BACKEND}}
+  backend:
+    build:
+# {{IF BE_ROOT_CONTEXT}}
+      context: .
+      dockerfile: ./{{BE_DIR}}/Dockerfile
+# {{ENDIF}}
+# {{IF BE_DIR_CONTEXT}}
+      context: ./{{BE_DIR}}
+      dockerfile: Dockerfile
+# {{ENDIF}}
+    ports:
+      - "{{BE_PORT}}:{{BE_PORT}}"
+    env_file:
+      - path: ./{{BE_DIR}}/.env
+        required: false
+    environment:
+      - PORT={{BE_PORT}}
+# {{IF DB_POSTGRES}}
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/{{PROJECT_NAME}}
+# {{ENDIF}}
+# {{IF DB_MONGO}}
+      - MONGODB_URI=mongodb://db:27017/{{PROJECT_NAME}}
+# {{ENDIF}}
+# {{IF REDIS}}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+# {{ENDIF}}
+    depends_on:
+# {{IF DB_POSTGRES}}
+      db:
+        condition: service_healthy
+# {{ENDIF}}
+# {{IF DB_MONGO}}
+      db:
+        condition: service_healthy
+# {{ENDIF}}
+# {{IF REDIS}}
+      redis:
+        condition: service_healthy
+# {{ENDIF}}
+# {{IF DB_NONE}}
+      []
+# {{ENDIF}}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:{{BE_PORT}}/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+# {{ENDIF}}
+
+# {{IF DB_POSTGRES}}
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: {{PROJECT_NAME}}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+# {{ENDIF}}
+
+# {{IF DB_MONGO}}
+  db:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+# {{ENDIF}}
+
+# {{IF REDIS}}
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+# {{ENDIF}}
+
+# {{IF DB_POSTGRES}}
+volumes:
+  pgdata:
+# {{ENDIF}}
+# {{IF DB_MONGO}}
+volumes:
+  mongodata:
+# {{ENDIF}}

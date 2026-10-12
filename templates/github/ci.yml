@@ -1,0 +1,248 @@
+# CI — pull request checks for {{PROJECT_NAME}}.
+# Every step goes through the Makefile, so what CI runs is what `make` runs locally.
+name: CI
+
+# Runner pinned to an explicit Ubuntu release: `ubuntu-latest` moves to the next
+# LTS on GitHub's schedule, not yours. Bump it deliberately. Actions are pinned
+# to majors that run on Node 24.
+on:
+  pull_request:
+    branches: [{{MAIN_BRANCH}}, {{DEV_BRANCH}}]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+# {{IF MONOREPO}}
+  changes:
+    name: Detect changed sides
+    runs-on: ubuntu-24.04
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend: ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - '{{FE_DIR}}/**'
+              - 'packages/**'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
+            backend:
+              - '{{BE_DIR}}/**'
+              - 'packages/**'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
+# {{ENDIF}}
+
+# {{IF FRONTEND}}
+  frontend:
+    name: Frontend — lint, typecheck, test, build
+# {{IF MONOREPO}}
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+# {{ENDIF}}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+# {{IF FE_PNPM}}
+      - uses: pnpm/action-setup@v6          # before setup-node, so cache: pnpm works
+        with:
+          version: {{PNPM_VERSION}}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '{{NODE_VERSION}}'
+          cache: pnpm
+# {{IF FE_DIR_CONTEXT}}
+          cache-dependency-path: {{FE_DIR}}/pnpm-lock.yaml
+# {{ENDIF}}
+# {{ENDIF}}
+# {{IF FE_NPM}}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '{{NODE_VERSION}}'
+          cache: npm
+          cache-dependency-path: {{FE_DIR}}/package-lock.json
+# {{ENDIF}}
+      - name: Install
+        run: make install-frontend || make install-frontend   # retry once: registry hiccups
+      - run: make lint-frontend
+      - run: make typecheck-frontend
+      - run: make test-frontend
+      - run: make build-frontend
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+# {{ENDIF}}
+
+# {{IF BACKEND_NODE}}
+  backend:
+    name: Backend — lint, typecheck, build, test
+# {{IF MONOREPO}}
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+# {{ENDIF}}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+# {{IF DB_POSTGRES}}
+    services:
+      db:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: postgres, POSTGRES_PASSWORD: postgres, POSTGRES_DB: test }
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+# {{ENDIF}}
+# {{IF DB_MONGO}}
+    services:
+      db:
+        image: mongo:7
+        ports: ['27017:27017']
+# {{ENDIF}}
+    env:
+      NODE_ENV: test
+      CI: 'true'
+# {{IF DB_POSTGRES}}
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test
+# {{ENDIF}}
+# {{IF DB_MONGO}}
+      MONGODB_URI: mongodb://localhost:27017/test
+# {{ENDIF}}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: {{PNPM_VERSION}}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '{{NODE_VERSION}}'
+          cache: pnpm
+# {{IF BE_DIR_CONTEXT}}
+          cache-dependency-path: {{BE_DIR}}/pnpm-lock.yaml
+# {{ENDIF}}
+      - name: Install
+        run: make install-backend || make install-backend
+      - run: make lint-backend
+      - run: make typecheck-backend
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+      - run: make build-backend
+      - run: make test-backend
+# {{ENDIF}}
+
+# {{IF BACKEND_PYTHON}}
+  backend:
+    name: Backend — lint, typecheck, test
+# {{IF MONOREPO}}
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+# {{ENDIF}}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+# {{IF DB_POSTGRES}}
+    services:
+      db:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: postgres, POSTGRES_PASSWORD: postgres, POSTGRES_DB: test }
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+# {{ENDIF}}
+# {{IF DB_MONGO}}
+    services:
+      db:
+        image: mongo:7
+        ports: ['27017:27017']
+# {{ENDIF}}
+    env:
+      CI: 'true'
+# {{IF DB_POSTGRES}}
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/test
+# {{ENDIF}}
+# {{IF DB_MONGO}}
+      MONGODB_URI: mongodb://localhost:27017/test
+# {{ENDIF}}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '{{PYTHON_VERSION}}'
+# {{IF BE_PIP}}
+          cache: pip
+          cache-dependency-path: {{BE_DIR}}/requirements*.txt
+# {{ENDIF}}
+# {{IF BE_UV}}
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+# {{ENDIF}}
+# {{IF BE_POETRY}}
+      - run: pipx install poetry
+# {{ENDIF}}
+      - name: Install
+        run: make install-backend
+      - run: make lint-backend
+      - run: make typecheck-backend
+      - run: make test-backend
+# {{ENDIF}}
+
+  docker:
+    name: Docker images build
+    runs-on: ubuntu-24.04
+    needs:
+# {{IF FRONTEND}}
+      - frontend
+# {{ENDIF}}
+# {{IF BACKEND}}
+      - backend
+# {{ENDIF}}
+    if: always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+# {{IF FRONTEND}}
+      - name: Build frontend image
+        uses: docker/build-push-action@v7
+        with:
+# {{IF FE_ROOT_CONTEXT}}
+          context: .
+          file: ./{{FE_DIR}}/Dockerfile
+# {{ENDIF}}
+# {{IF FE_DIR_CONTEXT}}
+          context: ./{{FE_DIR}}
+# {{ENDIF}}
+          push: false
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+# {{ENDIF}}
+# {{IF BACKEND}}
+      - name: Build backend image
+        uses: docker/build-push-action@v7
+        with:
+# {{IF BE_ROOT_CONTEXT}}
+          context: .
+          file: ./{{BE_DIR}}/Dockerfile
+# {{ENDIF}}
+# {{IF BE_DIR_CONTEXT}}
+          context: ./{{BE_DIR}}
+# {{ENDIF}}
+          push: false
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+# {{ENDIF}}
+
+  status:
+    name: CI status
+    runs-on: ubuntu-24.04
+    needs: [docker]
+    if: always()
+    steps:
+      - name: Fail if any job failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+      - run: echo "CI green"

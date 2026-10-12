@@ -1,0 +1,193 @@
+# CLAUDE.md
+
+This file is the **single source of truth** for any coding agent working on
+this repository. Read it before writing or modifying any code. It gives the
+structural context up front so you do not re-scan the codebase every session,
+and it routes you into `.agents/`, where the rules, patterns and plans live.
+
+## Project overview
+
+<!-- TODO(project): three to six lines. What the product does, how it is deployed. -->
+
+- **Shape:** {{PROJECT_NAME}} —
+<!-- {{IF PNPM_WORKSPACE}} -->
+  pnpm workspace monorepo: frontend in {{FE_DIR}}/, backend in {{BE_DIR}}/, shared JS packages under packages/; one lockfile at the root
+<!-- {{ENDIF}} -->
+<!-- {{IF FULLSTACK}} -->
+<!-- {{IF FE_DIR_CONTEXT}} -->
+  two self-contained apps side by side: frontend in {{FE_DIR}}/ and backend in {{BE_DIR}}/, each with its own dependencies, lockfile and Dockerfile; nothing is installed at the root
+<!-- {{ENDIF}} -->
+<!-- {{ENDIF}} -->
+<!-- {{IF FRONTEND_ONLY}} -->
+  frontend application
+<!-- {{ENDIF}} -->
+<!-- {{IF BACKEND_ONLY}} -->
+  backend service
+<!-- {{ENDIF}} -->
+<!-- {{IF FRONTEND}} -->
+- **Frontend:** {{FE_STACK}} on port {{FE_PORT}}, package manager {{FE_PACKAGE_MANAGER}}
+<!-- {{ENDIF}} -->
+<!-- {{IF BACKEND}} -->
+- **Backend:** {{BE_FRAMEWORK}} ({{BE_LANGUAGE}}) on port {{BE_PORT}}, package manager {{BE_PACKAGE_MANAGER}}
+<!-- {{ENDIF}} -->
+- **Database:** {{DATABASE}}
+- **Auth:** {{AUTH}}
+<!-- {{IF CI}} -->
+- **CI:** GitHub Actions on pull requests to {{MAIN_BRANCH}} and {{DEV_BRANCH}} (`.github/workflows/ci.yml`): the same make targets as the local gate, per side, plus a docker build
+<!-- {{ENDIF}} -->
+
+## Common commands
+
+Everything goes through the Makefile; `make` alone lists the targets. These
+are the ones the agent uses; the Makefile holds the real per-side commands.
+
+```bash
+make install                 # dependencies
+make dev                     # dev server(s)
+make lint                    # lint every side
+make typecheck               # what CI type-checks
+make test                    # all tests
+make test-file FILE=<path>   # one test file (path relative to the side's folder)
+<!-- {{IF FULLSTACK}} -->
+make test-file-frontend FILE=<path>   # same, frontend side
+<!-- {{ENDIF}} -->
+make build                   # build every side
+make up / make down          # local Docker stack (docker-compose.yml)
+make logs                    # tail the stack
+<!-- {{IF BACKEND}} -->
+make up-backend              # rebuild + restart the backend container, tail its logs
+<!-- {{ENDIF}} -->
+<!-- {{IF FRONTEND}} -->
+make up-frontend             # same for the frontend
+<!-- {{ENDIF}} -->
+<!-- {{IF BACKEND_PYTHON}} -->
+make migrate                 # apply database migrations locally
+<!-- {{ENDIF}} -->
+```
+
+Do not add a second way to run something that a make target already runs;
+extend the Makefile instead.
+
+## Workspace map
+
+```
+.agents/
+├── workflow/      how the agent works here — read session-protocol.md first
+├── rules/         MANDATORY constraints by area
+├── patterns/      approved recipes to copy, one canonical example each
+├── plans/         feature plans + PROGRESS / HANDOFF / KICKOFF / MILESTONES
+└── skills/        on-demand reference, exposed through .claude/skills/ symlinks
+Makefile           the single entry point for install / lint / test / build / docker
+docker-compose.yml local stack
+<!-- {{IF FRONTEND}} -->
+{{FE_DIR}}/        frontend ({{FE_STACK}}) — Dockerfile inside
+<!-- {{ENDIF}} -->
+<!-- {{IF BACKEND}} -->
+{{BE_DIR}}/        backend ({{BE_FRAMEWORK}}) — Dockerfile inside
+<!-- {{ENDIF}} -->
+<!-- TODO(project): the source tree with one line per top-level folder -->
+```
+
+## Mandatory reading order
+
+Before any task, read the files relevant to what you are about to do:
+
+1. `.agents/workflow/session-protocol.md` — always. The loop, stop-and-ask
+   triggers, definition of done. It links the other workflow files.
+2. `.agents/rules/coding-standards.md` — always when writing code.
+3. `.agents/rules/architecture.md` — read before adding a file or a module.
+   Hexagonal service: use `.agents/rules/architecture-hexagonal.md` instead
+   and delete the other.
+<!-- {{IF BACKEND}} -->
+4. `.agents/rules/api-design.md` — read before touching an endpoint.
+<!-- {{ENDIF}} -->
+5. `.agents/rules/error-handling.md` — read before writing anything that can fail.
+6. `.agents/rules/testing.md` — read before adding tests or choosing what to run.
+7. `.agents/rules/security.md` — read before touching input, files, permissions.
+8. `.agents/rules/documentation.md` — read before writing any document.
+<!-- TODO(project): add project rules with their trigger, e.g. "9. `.agents/rules/admin-routing.md` — read before touching anything under `/admin/*`." -->
+
+When the task touches a specific area, also load the matching pattern or plan:
+
+<!-- TODO(project): area → path bullets -->
+<!-- {{IF BACKEND}} -->
+- New list endpoint → `.agents/patterns/…`
+- New entity (hexagonal) → `.agents/patterns/repository-adapter-pattern.md`
+- New REST resource (hexagonal) → `.agents/patterns/entrypoint-module-pattern.md`
+<!-- {{ENDIF}} -->
+- Feature X → `.agents/plans/x/PLAN.md` (read `KICKOFF.md` first if present)
+
+## Skills (load when relevant)
+
+<!-- TODO(project): topic → skill folder. Say which auto-load via `paths:`. -->
+- … → `.agents/skills/…/` (auto-loads on `src/…/**`)
+
+## Canonical references (mirror these, do not invent)
+
+| Layer / need | File |
+| --- | --- |
+| Route module | <!-- TODO(project) --> `src/…` |
+| Service | |
+| Model | |
+| Paginated list (server) | |
+| Paginated list (client) | |
+| Error hierarchy and handler | |
+| Unit test | |
+| Integration test | |
+| UI component | |
+| API client module | |
+
+## Hard rules (do not violate)
+
+<!-- {{IF BACKEND}} -->
+- **Response envelope** on every JSON endpoint; paginated lists follow the
+  standard in `.agents/rules/api-design.md`.
+- **Errors are classes** from the shared hierarchy; never a raw status in a
+  handler.
+- **Every endpoint is guarded** on the route.
+<!-- {{ENDIF}} -->
+- **No new dependency, abstraction or pattern** without explicit approval.
+- **No unrequested initiative**: only what was asked; report the rest.
+- **Honest status**: a test is passed only if it ran in this session.
+<!-- TODO(project): the project's own, e.g. "When adding or changing an index, bump `CURRENT_SCHEMA_VERSION`." -->
+
+## Workflow for every task
+
+1. Read this file and the `.agents/` documents listed above for the task.
+2. Open the canonical reference for the layer you touch; mirror it.
+3. Plan the smallest change; for anything beyond a local fix, follow
+   `.agents/workflow/planning.md` and get confirmation.
+4. Implement minimally (`.agents/workflow/implementation.md`).
+5. Verify (`.agents/workflow/verification.md`): touched-area tests + build,
+   real entry point, state what ran.
+6. Hand off (`.agents/workflow/handoff.md`), then stop.
+
+If you cannot satisfy a rule, **stop and ask** instead of bypassing it.
+
+## Gotchas
+
+<!-- TODO(project): facts that caused a silent bug once. One paragraph each, symptom first. -->
+
+## Diagnostic scripts
+
+<!-- TODO(project): for each script the agent should reach for: when to use it, how to call it, how to read its output, known false positives. -->
+
+## When in doubt
+
+Prefer re-reading the `.agents/` documents and the canonical references over
+guessing. Consistency with existing patterns matters more than cleverness.
+The reviewer expects code that looks written by the same hand as the rest of
+the project.
+
+## Out of scope (do NOT do)
+
+- Do not refactor unrelated code "while you're there".
+- Do not introduce new libraries, abstractions or design patterns without
+  being asked.
+- Do not rename, reorganise or "clean up" files outside the requested change.
+- Do not add tests, stories or documentation that were not requested beyond
+  the definition of done.
+- Do not change tooling configuration unless the task is about that
+  configuration.
+- Do not touch the git remote or any environment beyond the one the task
+  names (`.agents/workflow/safety.md`).

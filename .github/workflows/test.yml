@@ -1,0 +1,45 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Both the current and the upcoming `ubuntu-latest` image, so a runner migration
+# never surprises us. Actions pinned to majors that run on Node 24.
+jobs:
+  test:
+    name: Render every fixture and validate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install validators
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q shellcheck
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) latest /usr/local/bin
+          sudo curl -fsSL -o /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64
+          sudo chmod +x /usr/local/bin/hadolint
+      - name: Run the suite
+        run: tests/run.sh -v
+
+  smoke:
+    name: Build and run a rendered project (docker, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Render, build, start, probe
+        run: tests/smoke.sh

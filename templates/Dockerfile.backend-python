@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1
+# Python backend (FastAPI or similar). Multi-stage: builder installs into a
+# virtualenv, runner copies only that. Runs as a non-root user.
+
+ARG PYTHON_VERSION={{PYTHON_VERSION}}
+FROM python:${PYTHON_VERSION}-slim AS builder
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+RUN python -m venv /venv
+ENV PATH="/venv/bin:$PATH"
+# {{IF BE_PIP}}
+COPY requirements.txt ./
+RUN pip install -r requirements.txt
+# {{ENDIF}}
+# {{IF BE_UV}}
+RUN pip install uv
+ENV UV_PROJECT_ENVIRONMENT=/venv
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+# {{ENDIF}}
+# {{IF BE_POETRY}}
+RUN pip install poetry && poetry config virtualenvs.create false
+COPY pyproject.toml poetry.lock ./
+RUN poetry install --only main --no-root
+# {{ENDIF}}
+
+FROM python:${PYTHON_VERSION}-slim AS runner
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 1001 app && useradd --system --uid 1001 --gid app --create-home app
+WORKDIR /app
+COPY --from=builder /venv /venv
+ENV PATH="/venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app
+COPY --chown=app:app . .
+USER 1001:1001
+ENV PORT={{BE_PORT}}
+EXPOSE {{BE_PORT}}
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["curl", "-fsS", "http://127.0.0.1:{{BE_PORT}}/health"]
+CMD ["sh", "-c", "exec uvicorn {{BE_ASGI_APP}} --host 0.0.0.0 --port ${PORT}"]

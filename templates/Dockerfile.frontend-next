@@ -1,0 +1,91 @@
+# syntax=docker/dockerfile:1
+# Next.js frontend, standalone output. Multi-stage: deps → builder → runner.
+# Public variables (NEXT_PUBLIC_*) are baked at build time: each one needs an
+# ARG + ENV pair here AND an entry in the CI build-args / compose args.
+# {{IF FE_ROOT_CONTEXT}}
+# Workspace build: the context is the repository root (pnpm workspace shared
+# with a Node backend); only this workspace and its dependencies are installed.
+# {{ENDIF}}
+
+ARG NODE_VERSION={{NODE_VERSION}}
+ARG PNPM_VERSION={{PNPM_VERSION}}
+FROM node:${NODE_VERSION}-alpine AS base
+ARG PNPM_VERSION
+# {{IF FE_PNPM}}
+RUN apk add --no-cache libc6-compat \
+    && corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+# {{ENDIF}}
+# {{IF FE_NPM}}
+RUN apk add --no-cache libc6-compat
+# {{ENDIF}}
+WORKDIR /app
+
+# ---- deps ----
+FROM base AS deps
+# {{IF FE_ROOT_CONTEXT}}
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY {{FE_DIR}}/package.json ./{{FE_DIR}}/
+# Add the package.json of every workspace package the frontend depends on:
+# COPY packages/shared/package.json ./packages/shared/
+RUN pnpm install --frozen-lockfile --filter "{{FE_PACKAGE_NAME}}..."
+# {{ENDIF}}
+# {{IF FE_DIR_CONTEXT}}
+# {{IF FE_PNPM}}
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+# {{ENDIF}}
+# {{IF FE_NPM}}
+COPY package.json package-lock.json ./
+RUN npm ci
+# {{ENDIF}}
+# {{ENDIF}}
+
+# ---- builder ----
+FROM base AS builder
+COPY --from=deps /app ./
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+# {{IF BACKEND}}
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# {{ENDIF}}
+# {{IF FE_ROOT_CONTEXT}}
+RUN pnpm --filter "{{FE_PACKAGE_NAME}}..." run build
+# {{ENDIF}}
+# {{IF FE_DIR_CONTEXT}}
+# {{IF FE_PNPM}}
+RUN pnpm run build
+# {{ENDIF}}
+# {{IF FE_NPM}}
+RUN npm run build
+# {{ENDIF}}
+# {{ENDIF}}
+
+# ---- runner ----
+FROM node:${NODE_VERSION}-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+# {{IF FE_ROOT_CONTEXT}}
+COPY --from=builder --chown=nextjs:nodejs /app/{{FE_DIR}}/public ./{{FE_DIR}}/public
+COPY --from=builder --chown=nextjs:nodejs /app/{{FE_DIR}}/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/{{FE_DIR}}/.next/static ./{{FE_DIR}}/.next/static
+# {{ENDIF}}
+# {{IF FE_DIR_CONTEXT}}
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# {{ENDIF}}
+USER 1001:1001
+ENV PORT={{FE_PORT}}
+ENV HOSTNAME=0.0.0.0
+EXPOSE {{FE_PORT}}
+# 127.0.0.1, not localhost: busybox wget resolves localhost to ::1 while Next listens on IPv4 only.
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["wget", "-qO-", "http://127.0.0.1:{{FE_PORT}}/"]
+# {{IF FE_ROOT_CONTEXT}}
+CMD ["node", "{{FE_DIR}}/server.js"]
+# {{ENDIF}}
+# {{IF FE_DIR_CONTEXT}}
+CMD ["node", "server.js"]
+# {{ENDIF}}
