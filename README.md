@@ -4,12 +4,17 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **A project-agnostic `.agents/` folder, Makefile, Docker and CI scaffold for
-repositories built with coding agents.**
+web applications built with coding agents.**
 
-Drop it into a new repository, answer a few questions, and the agent starts
-every session with the same working protocol, the same document shapes, the
-same rule skeletons and the same `make` targets you already trust. The next
-project reuses your answers.
+Made for the shape most products take: a frontend (Next.js), a backend
+(Node or Python) or both in one repository, with a database and a local
+Docker stack. Drop it into a new repository, answer a few questions, and the
+agent starts every session with the same working protocol, the same document
+shapes, the same rule skeletons and the same `make` targets you already trust.
+The next project reuses your answers.
+
+Not the target: libraries, CLIs, mobile apps, data pipelines. The
+`.agents/workflow/` part still applies to them; the scaffold does not.
 
 ```bash
 ~/agents-kit/init.sh .              # copy .agents/ and CLAUDE.md, never overwriting

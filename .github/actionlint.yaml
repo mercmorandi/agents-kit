@@ -1,0 +1,4 @@
+# actionlint ships a static list of runner labels; ubuntu-26.04 is real (the CI runs on it)
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

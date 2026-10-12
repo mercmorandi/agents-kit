@@ -2,8 +2,10 @@ name: Tests
 
 on:
   pull_request:
+    paths-ignore: [README.md, CHANGELOG.md, CONTRIBUTING.md, LICENSE]
   push:
     branches: [main]
+    paths-ignore: [README.md, CHANGELOG.md, CONTRIBUTING.md, LICENSE]
 
 permissions:
   contents: read
