@@ -1,5 +1,8 @@
 # agents-kit
 
+[![Tests](https://github.com/mercmorandi/agents-kit/actions/workflows/test.yml/badge.svg)](https://github.com/mercmorandi/agents-kit/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **A project-agnostic `.agents/` folder, Makefile, Docker and CI scaffold for
 repositories built with coding agents.**
 
